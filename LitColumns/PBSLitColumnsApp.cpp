@@ -429,12 +429,17 @@ void LitColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.TotalTime = gt.TotalTime();
 	mMainPassCB.DeltaTime = gt.DeltaTime();
 	mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
-	mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-	mMainPassCB.Lights[0].Strength = { 0.6f, 0.6f, 0.6f };
-	mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
-	mMainPassCB.Lights[1].Strength = { 0.3f, 0.3f, 0.3f };
-	mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
-	mMainPassCB.Lights[2].Strength = { 0.15f, 0.15f, 0.15f };
+	mMainPassCB.Lights[0].Position = { -10.f,  10.f, -10.f };
+	mMainPassCB.Lights[0].Strength = { 600.f, 600.f, 600.f };
+
+	mMainPassCB.Lights[1].Position = { 10.f,  10.f, -10.f };
+	mMainPassCB.Lights[1].Strength = { 300.f, 300.f, 300.f };
+
+	mMainPassCB.Lights[2].Position = { -10.f, -10.f, -10.f };
+	mMainPassCB.Lights[2].Strength = { 300.f, 300.f, 300.f };
+
+	mMainPassCB.Lights[3].Position = { 10.f, -10.f, -10.f };
+	mMainPassCB.Lights[3].Strength = { 300.f, 300.f, 300.f };
 
 	auto currPassCB = mCurrFrameResource->PassCB.get();
 	currPassCB->CopyData(0, mMainPassCB);
@@ -751,7 +756,7 @@ void LitColumnsApp::BuildMaterials()
 	tile0->MatCBIndex = 2;
 	tile0->DiffuseSrvHeapIndex = 2;
 	tile0->DiffuseAlbedo = XMFLOAT4(Colors::LightGray);
-	tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
+	tile0->FresnelR0 = XMFLOAT3(0.5f, 0.5f, 0.5);
 	tile0->Roughness = 0.2f;
 
 	auto skullMat = std::make_unique<Material>();
@@ -759,9 +764,9 @@ void LitColumnsApp::BuildMaterials()
 	skullMat->MatCBIndex = 3;
 	skullMat->DiffuseSrvHeapIndex = 3;
 	skullMat->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-	skullMat->FresnelR0 = XMFLOAT3(0.05f, 0.05f, 0.05);
+	skullMat->FresnelR0 = XMFLOAT3(0.5f, 0.5f, 0.5);
 	skullMat->Roughness = 0.3f;
-	skullMat->Metallic = 0.5f;
+	skullMat->Metallic = 0.1;
 	
 	mMaterials["bricks0"] = std::move(bricks0);
 	mMaterials["stone0"] = std::move(stone0);

@@ -41,130 +41,57 @@ float3 SchlickFresnel(float3 R0, float3 normal, float3 lightVec)
     return reflectPercent;
 }
 
-float3 BlinnPhong(float3 lightStrength, float3 lightVec, float3 normal, float3 toEye, Material mat)
+// ----------------------------------------------------------------------------
+// 菲涅尔方程 当光线碰撞到一个表面的时候，菲涅尔方程会根据观察角度告诉我们被反射的光线所占的百分比
+float3 fresnelSchlick(float cosTheta, float3 F0)
 {
-    const float m = mat.Shininess * 256.0f;
-    float3 halfVec = normalize(toEye + lightVec);
+    float OneSubCos = 1.f - cosTheta;
 
-    float roughnessFactor = (m + 8.0f)*pow(max(dot(halfVec, normal), 0.0f), m) / 8.0f;
-    float3 fresnelFactor = SchlickFresnel(mat.FresnelR0, halfVec, lightVec);
-
-    float3 specAlbedo = fresnelFactor*roughnessFactor;
-
-    // Our spec formula goes outside [0,1] range, but we are 
-    // doing LDR rendering.  So scale it down a bit.
-    specAlbedo = specAlbedo / (specAlbedo + 1.0f);
-
-    return (mat.DiffuseAlbedo.rgb + specAlbedo) * lightStrength;
+    return F0 + (1.f - F0) * OneSubCos * OneSubCos * OneSubCos * OneSubCos * OneSubCos;
 }
 
-//---------------------------------------------------------------------------------------
-// Evaluates the lighting equation for directional lights.
-//---------------------------------------------------------------------------------------
-float3 ComputeDirectionalLight(Light L, Material mat, float3 normal, float3 toEye)
+// ----------------------------------------------------------------------------
+// 正态分布函数：估算在受到表面粗糙度的影响下，取向方向与中间向量一致的微平面的数量。 DFG的D
+float DistributionGGX(float3 N, float3 H, float roughness)
 {
-    // The light vector aims opposite the direction the light rays travel.
-    float3 lightVec = -L.Direction;
+    float a = roughness*roughness;
+    float a2 = a*a;
+    float NdotH = saturate(dot(N, H));
+    float NdotH2 = NdotH*NdotH;
 
-    // Scale light down by Lambert's cosine law.
-    float ndotl = max(dot(lightVec, normal), 0.0f);
-    float3 lightStrength = L.Strength * ndotl;
+    float nom   = a2;
+    float denom = (NdotH2 * (a2 - 1.0f) + 1.0f);
+    denom = 3.14159265359f * denom * denom;
 
-    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+    return nom / max(denom, 0.0000001); // prevent divide by zero for roughness=0.0 and NdotH=1.0
 }
 
-//---------------------------------------------------------------------------------------
-// Evaluates the lighting equation for point lights.
-//---------------------------------------------------------------------------------------
-float3 ComputePointLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
+// ----------------------------------------------------------------------------
+// 几何函数 GGX与Schlick-Beckmann近似的结合体
+float GeometrySchlickGGX(float NdotV, float roughness)
 {
-    // The vector from the surface to the light.
-    float3 lightVec = L.Position - pos;
+    float r = (roughness + 1.0);
+    float k = (r*r) / 8.0;
 
-    // The distance from surface to light.
-    float d = length(lightVec);
+    float nom   = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
 
-    // Range test.
-    if(d > L.FalloffEnd)
-        return 0.0f;
-
-    // Normalize the light vector.
-    lightVec /= d;
-
-    // Scale light down by Lambert's cosine law.
-    float ndotl = max(dot(lightVec, normal), 0.0f);
-    float3 lightStrength = L.Strength * ndotl;
-
-    // Attenuate light by distance.
-    float att = CalcAttenuation(d, L.FalloffStart, L.FalloffEnd);
-    lightStrength *= att;
-
-    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+    return nom / denom;
 }
 
-//---------------------------------------------------------------------------------------
-// Evaluates the lighting equation for spot lights.
-//---------------------------------------------------------------------------------------
-float3 ComputeSpotLight(Light L, Material mat, float3 pos, float3 normal, float3 toEye)
+// ----------------------------------------------------------------------------
+// 几何函数 史密斯法(Smith’s method)  将观察方向（几何遮蔽(Geometry Obstruction)）和光线方向向量（几何阴影(Geometry Shadowing)）都考虑进去
+float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
 {
-    // The vector from the surface to the light.
-    float3 lightVec = L.Position - pos;
+    // 观察方向
+    float NdotV = max(dot(N, V), 0.0);
+    // 光线方向
+    float NdotL = max(dot(N, L), 0.0);
+    // 观察方向的几何遮蔽
+    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    // 光线方向的几何阴影
+    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
 
-    // The distance from surface to light.
-    float d = length(lightVec);
-
-    // Range test.
-    if(d > L.FalloffEnd)
-        return 0.0f;
-
-    // Normalize the light vector.
-    lightVec /= d;
-
-    // Scale light down by Lambert's cosine law.
-    float ndotl = max(dot(lightVec, normal), 0.0f);
-    float3 lightStrength = L.Strength * ndotl;
-
-    // Attenuate light by distance.
-    float att = CalcAttenuation(d, L.FalloffStart, L.FalloffEnd);
-    lightStrength *= att;
-
-    // Scale by spotlight
-    float spotFactor = pow(max(dot(-lightVec, L.Direction), 0.0f), L.SpotPower);
-    lightStrength *= spotFactor;
-
-    return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);
+    return ggx1 * ggx2;
 }
-
-float4 ComputeLighting(Light gLights[MaxLights], Material mat,
-                       float3 pos, float3 normal, float3 toEye,
-                       float3 shadowFactor)
-{
-    float3 result = 0.0f;
-
-    int i = 0;
-
-#if (NUM_DIR_LIGHTS > 0)
-    for(i = 0; i < NUM_DIR_LIGHTS; ++i)
-    {
-        result += shadowFactor[i] * ComputeDirectionalLight(gLights[i], mat, normal, toEye);
-    }
-#endif
-
-#if (NUM_POINT_LIGHTS > 0)
-    for(i = NUM_DIR_LIGHTS; i < NUM_DIR_LIGHTS+NUM_POINT_LIGHTS; ++i)
-    {
-        result += ComputePointLight(gLights[i], mat, pos, normal, toEye);
-    }
-#endif
-
-#if (NUM_SPOT_LIGHTS > 0)
-    for(i = NUM_DIR_LIGHTS + NUM_POINT_LIGHTS; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i)
-    {
-        result += ComputeSpotLight(gLights[i], mat, pos, normal, toEye);
-    }
-#endif 
-
-    return float4(result, 0.0f);
-}
-
 
